@@ -1,7 +1,8 @@
-import {search as searchYoutubeVideoByName} from './services/YoutubeAccess.js';
-import {Client} from 'discord.js';
-import {} from 'dotenv/config';
+import { search as searchYoutubeVideoByName } from './services/YoutubeAccess.js';
+import { Client } from 'discord.js';
+import dotenv from 'dotenv';
 import ytdl from 'ytdl-core';
+dotenv.config();
 
 const CHANNEL_GERAL = process.env.DISCORD_VOICE_CHANNEL_ID;
 const CHANNEL_ENABLE_TO_COMMAND = process.env.DISCORD_ENABLE_MASSAGE_CHANNEL_ID;
@@ -9,7 +10,7 @@ let isPlaying = false;
 const SONG_LIST_NAMES = [];
 
 const bot = new Client();
-const musicOptions = {seek: 0, volume: 1, plp: 0, fec: true};
+const musicOptions = { seek: 0, volume: 1, plp: 0, fec: true };
 
 bot.login(process.env.TOKEN_BOT_DISCORD);
 
@@ -18,93 +19,84 @@ bot.on('ready', () => {
 });
 
 bot.on('message', async (msg) => {
-  if (msg?.author?.bot ||
-    msg?.channel?.id !== CHANNEL_ENABLE_TO_COMMAND) {
+  console.log(`Message from ${msg.author.username}: ${msg}`);
+  console.log(`Message channel: ${msg.channel.id}`, msg);
+  // Prevent commands from bots and check channel
+  if (msg.author.bot || msg.channel.id !== CHANNEL_ENABLE_TO_COMMAND) return;
+
+  const voiceChannel = msg.guild.channels.cache.get(CHANNEL_GERAL);
+  if (!voiceChannel) {
+    console.log('Voice channel not found.');
     return;
-  } else {
-    const voiceChannel = msg?.guild?.channels?.cache
-        .find((channels) => channels?.id === CHANNEL_GERAL);
-    const value = msg?.content?.trim()?.toLowerCase()?.split(' ');
-    switch (value[0]) {
-      case '!play':
-        value.shift();
-        if (voiceChannel) {
-          const musicTitle = value?.join(' ')?.trim()?.toLowerCase() ?? null;
-          if (musicTitle) {
-            SONG_LIST_NAMES.push(musicTitle);
-            if (bot?.voice?.connections?.find((connection) =>
-              connection?.channel?.id === CHANNEL_GERAL)) {
-              if (!isPlaying) {
-                await searchMusicByNameOnYoutube(voiceChannel,
-                    SONG_LIST_NAMES[0]);
-              }
-            } else {
-              await searchMusicByNameOnYoutube(voiceChannel,
-                  SONG_LIST_NAMES[0]);
-            }
-          } else {
-            return;
-          }
-        } else {
-          console.log(`Voice channel not found`);
-          return;
+  }
+
+  const [command, ...args] = msg.content.trim().toLowerCase().split(' ');
+
+  switch (command) {
+    case '!play': {
+      const musicTitle = args.join(' ').trim();
+      if (musicTitle) {
+        SONG_LIST_NAMES.push(musicTitle);
+        if (!isPlaying) {
+          await searchMusicByNameOnYoutube(voiceChannel, SONG_LIST_NAMES[0]);
         }
-        break;
-      case '!next':
-        await nextMusic(voiceChannel);
-        break;
-      case '!list':
-        SONG_LIST_NAMES?.length ?
-          SONG_LIST_NAMES?.map((music, index) => {
-          index === 0 ?
-              msg?.channel?.send(`${music} - Play now`) :
-              msg?.channel?.send(`${music}`);
-          }) :
-          msg?.channel?.send('Não a nenhuma musica na lista de reprodução');
-        break;
-      case '':
-        break;
+      }
+      break;
     }
+    case '!next':
+      await nextMusic(voiceChannel);
+      break;
+    case '!list':
+      if (SONG_LIST_NAMES.length) {
+        SONG_LIST_NAMES.forEach((music, index) => {
+          msg.channel.send(index === 0 ? `${music} - Now Playing` : music);
+        });
+      } else {
+        msg.channel.send('No songs in the playlist.');
+      }
+      break;
+    default:
+      break;
   }
 });
 
-const searchMusicByNameOnYoutube = async (voiceChannel,
-    nameToSearch = null) => {
+const searchMusicByNameOnYoutube = async (voiceChannel, nameToSearch) => {
   if (!nameToSearch) return;
   try {
     isPlaying = true;
     const result = await searchYoutubeVideoByName(nameToSearch);
-    const videoId = result?.data?.items[0]?.id?.videoId ?? null;
+    const videoId = result?.data?.items[0]?.id?.videoId;
     await startMusic(voiceChannel, videoId);
   } catch (error) {
-    console.error(error);
+    console.error('Error searching music:', error);
+    isPlaying = false;
   }
 };
 
-const startMusic = async (voiceChannel, videoId = null) => {
+const startMusic = async (voiceChannel, videoId) => {
   try {
     if (videoId) {
       const connection = await voiceChannel.join();
-      const music = ytdl(`https://www.youtube.com/watch?v=${videoId}`, {filter: 'audioonly'});
-      const dispatcher = connection.play(music, musicOptions);
+      const musicStream = ytdl(`https://www.youtube.com/watch?v=${videoId}`, { filter: 'audioonly' });
+      const dispatcher = connection.play(musicStream, musicOptions);
       dispatcher.on('finish', async () => {
         await nextMusic(voiceChannel);
       });
-    } else { // if not music found
+    } else {
       isPlaying = false;
-      return;
     }
   } catch (error) {
-    console.error(error);
+    console.error('Error starting music:', error);
+    isPlaying = false;
   }
 };
 
 const nextMusic = async (voiceChannel) => {
   SONG_LIST_NAMES.shift();
-  if (SONG_LIST_NAMES?.length) {
+  if (SONG_LIST_NAMES.length) {
     await searchMusicByNameOnYoutube(voiceChannel, SONG_LIST_NAMES[0]);
   } else {
     isPlaying = false;
-    await voiceChannel.leave();
+    voiceChannel.leave();
   }
 };
